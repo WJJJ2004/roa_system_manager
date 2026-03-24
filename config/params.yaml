@@ -1,0 +1,11 @@
+system_manager_node:
+  ros__parameters:
+    fsm_period_sec: 0.02
+    controller_status_timeout_sec: 0.5
+    safe_hold_timeout_sec: 2.0
+    lifecycle_service_timeout_sec: 1.0
+    init_pos_pub_period_sec: 0.05
+    init_pos_timeout_sec: 10.0
+
+    controller_status_topic: /controller/status
+    controller_node_name: /roa_controller_node
