@@ -14,10 +14,31 @@ find_package(roa_interfaces REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
-add_executable(roa_system_manager
+# add_executable(roa_system_manager
+#   src/system_manager_node.cpp
+# )
+# ament_target_dependencies(roa_system_manager
+#   std_msgs
+#   rclcpp
+#   rclcpp_lifecycle
+#   lifecycle_msgs
+#   roa_interfaces
+# )
+
+# target_include_directories(roa_system_manager PUBLIC
+#   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+#   $<INSTALL_INTERFACE:include>
+# )
+
+# install(TARGETS
+#   roa_system_manager
+#   RUNTIME DESTINATION lib/${PROJECT_NAME}
+# )
+add_executable(system_manager_node
   src/system_manager_node.cpp
 )
-ament_target_dependencies(roa_system_manager
+
+ament_target_dependencies(system_manager_node
   std_msgs
   rclcpp
   rclcpp_lifecycle
@@ -25,13 +46,13 @@ ament_target_dependencies(roa_system_manager
   roa_interfaces
 )
 
-target_include_directories(roa_system_manager PUBLIC
+target_include_directories(system_manager_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
 
 install(TARGETS
-  roa_system_manager
+  system_manager_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 

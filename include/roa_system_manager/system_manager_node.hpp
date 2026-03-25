@@ -15,6 +15,7 @@
 #include <roa_interfaces/msg/system_status.hpp>
 #include <roa_interfaces/msg/motor_command.hpp>
 #include <roa_interfaces/msg/motor_command_array.hpp>
+#include <roa_interfaces/msg/rsu_target.hpp>
 
 namespace system_manager
 {
@@ -106,6 +107,7 @@ private:
   void onControllerStatus(const roa_interfaces::msg::SystemStatus::SharedPtr msg);
   void onInitPosDone(const std_msgs::msg::Bool::SharedPtr msg);
   void onFsmTimer();
+  void onBootSeqTimer();
 
   bool isStatusFresh(const StatusCache& cache, const rclcpp::Time& now_time, double timeout_sec) const;
 
@@ -181,6 +183,8 @@ private:
   rclcpp::Subscription<roa_interfaces::msg::SystemStatus>::SharedPtr controller_status_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr init_pos_sub_;
   rclcpp::TimerBase::SharedPtr fsm_timer_;
+  rclcpp::TimerBase::SharedPtr boot_seq_timer_;
+
 
   // lifecycle clients
   rclcpp::Client<lifecycle_msgs::srv::ChangeState>::SharedPtr controller_change_state_client_;
@@ -188,6 +192,8 @@ private:
 
   // command publisher
   rclcpp::Publisher<roa_interfaces::msg::MotorCommandArray>::SharedPtr init_pos_pub_;
+  rclcpp::Publisher<roa_interfaces::msg::RsuTarget>::SharedPtr rsu_target_pub_;
+  // rclcpp::Publisher<>
 };
 
 }  // namespace system_manager

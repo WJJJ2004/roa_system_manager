@@ -4,7 +4,7 @@ from ament_index_python.packages import get_package_share_directory
 import os
 
 def generate_launch_description():
-    pkg = "roa_controller_node"
+    pkg = "roa_system_manager"
     params = os.path.join(get_package_share_directory(pkg), "config", "params.yaml")
 
     return LaunchDescription([
