@@ -15,7 +15,6 @@
 #include <roa_interfaces/msg/system_status.hpp>
 #include <roa_interfaces/msg/motor_command.hpp>
 #include <roa_interfaces/msg/motor_command_array.hpp>
-#include <roa_interfaces/msg/rsu_target.hpp>
 
 namespace system_manager
 {
@@ -42,13 +41,13 @@ private:
     REQUEST_CONFIGURE = 3,
     WAIT_CONFIGURE = 4,
     WAIT_CONTROLLER_READY = 5,
-    REQUEST_INIT_POS = 6,
-    WAIT_INIT_POS_DONE = 7,
-    REQUEST_GET_STATE_FOR_ACTIVATE = 8,
-    WAIT_GET_STATE_FOR_ACTIVATE = 9,
-    REQUEST_ACTIVATE = 10,
-    WAIT_ACTIVATE = 11,
-    DONE = 12
+    // REQUEST_INIT_POS = 6,
+    WAIT_INIT_POS_DONE = 6,
+    REQUEST_GET_STATE_FOR_ACTIVATE = 7,
+    WAIT_GET_STATE_FOR_ACTIVATE = 8,
+    REQUEST_ACTIVATE = 9,
+    WAIT_ACTIVATE = 10,
+    DONE = 11
   };
 
   enum class SafeHoldStep : uint8_t
@@ -107,7 +106,6 @@ private:
   void onControllerStatus(const roa_interfaces::msg::SystemStatus::SharedPtr msg);
   void onInitPosDone(const std_msgs::msg::Bool::SharedPtr msg);
   void onFsmTimer();
-  void onBootSeqTimer();
 
   bool isStatusFresh(const StatusCache& cache, const rclcpp::Time& now_time, double timeout_sec) const;
 
@@ -142,16 +140,17 @@ private:
   bool is_init_pos_done_{false};
   roa_controller_node::PacketManager::Command12Dof init_pos_{};
 
-  rclcpp::Time init_pos_start_time_{0, 0, RCL_ROS_TIME};
+  // rclcpp::Time init_pos_start_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_init_pos_pub_time_{0, 0, RCL_ROS_TIME};
 
   // parameters
-  double fsm_period_sec_{0.02};               // 50 Hz
+  double fsm_period_sec_{0.01};                // 100 Hz
   double controller_status_timeout_sec_{0.3};
   double safe_hold_timeout_sec_{2.0};
   double lifecycle_service_timeout_sec_{1.0};
-  double init_pos_pub_period_sec_{0.05};      // 20 Hz
+  double init_pos_pub_period_sec_{0.01};       // 100 Hz
   double init_pos_timeout_sec_{10.0};
+  double error_log_throttle_sec_{2.0};
 
   std::string controller_status_topic_{"/controller/status"};
   std::string controller_node_name_{"/roa_controller_node"};
@@ -179,12 +178,15 @@ private:
   GetStateCallContext get_state_ctx_;
   ChangeStateCallContext change_state_ctx_;
 
+  // log / retry state
+  int controller_ready_wait_count_{0};
+  uint32_t last_logged_error_code_{0};
+  rclcpp::Time last_error_log_time_{0, 0, RCL_ROS_TIME};
+
   // ROS interfaces
   rclcpp::Subscription<roa_interfaces::msg::SystemStatus>::SharedPtr controller_status_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr init_pos_sub_;
   rclcpp::TimerBase::SharedPtr fsm_timer_;
-  rclcpp::TimerBase::SharedPtr boot_seq_timer_;
-
 
   // lifecycle clients
   rclcpp::Client<lifecycle_msgs::srv::ChangeState>::SharedPtr controller_change_state_client_;
@@ -192,8 +194,6 @@ private:
 
   // command publisher
   rclcpp::Publisher<roa_interfaces::msg::MotorCommandArray>::SharedPtr init_pos_pub_;
-  rclcpp::Publisher<roa_interfaces::msg::RsuTarget>::SharedPtr rsu_target_pub_;
-  // rclcpp::Publisher<>
 };
 
 }  // namespace system_manager

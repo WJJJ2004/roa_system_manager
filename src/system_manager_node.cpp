@@ -2,15 +2,16 @@
 
 #include <chrono>
 #include <functional>
+#include <sstream>
 #include <utility>
 
 using namespace std::chrono_literals;
 
 namespace
 {
-#define DEG_20 0.349066f
-#define DEG_50 0.872665f
-#define DEG_30 0.523599f
+constexpr float DEG_20 = 0.349066f;
+constexpr float DEG_30 = 0.523599f;
+constexpr float DEG_50 = 0.872665f;
 }  // namespace
 
 namespace system_manager
@@ -36,7 +37,8 @@ SystemManagerNode::SystemManagerNode(const rclcpp::NodeOptions& options)
 
 void SystemManagerNode::declareAndLoadParams()
 {
-  fsm_period_sec_ = this->declare_parameter<double>("fsm_period_sec", fsm_period_sec_);
+  fsm_period_sec_ =
+    this->declare_parameter<double>("fsm_period_sec", fsm_period_sec_);
   controller_status_timeout_sec_ =
     this->declare_parameter<double>("controller_status_timeout_sec", controller_status_timeout_sec_);
   safe_hold_timeout_sec_ =
@@ -47,6 +49,8 @@ void SystemManagerNode::declareAndLoadParams()
     this->declare_parameter<double>("init_pos_pub_period_sec", init_pos_pub_period_sec_);
   init_pos_timeout_sec_ =
     this->declare_parameter<double>("init_pos_timeout_sec", init_pos_timeout_sec_);
+  error_log_throttle_sec_ =
+    this->declare_parameter<double>("error_log_throttle_sec", error_log_throttle_sec_);
 
   controller_status_topic_ =
     this->declare_parameter<std::string>("controller_status_topic", controller_status_topic_);
@@ -74,8 +78,6 @@ void SystemManagerNode::setupRosInterfaces()
 {
   auto status_qos = rclcpp::QoS(rclcpp::KeepLast(10)).best_effort();
   auto cmd_qos = rclcpp::QoS(rclcpp::KeepLast(10)).reliable();
-  rclcpp::QoS rsu_qos(rclcpp::KeepLast(1));
-  rsu_qos.best_effort();
 
   controller_status_sub_ = this->create_subscription<roa_interfaces::msg::SystemStatus>(
     controller_status_topic_,
@@ -90,11 +92,6 @@ void SystemManagerNode::setupRosInterfaces()
   init_pos_pub_ = this->create_publisher<roa_interfaces::msg::MotorCommandArray>(
     "/hardware_interface/command",
     cmd_qos);
-
-  rsu_target_pub_ = this->create_publisher<roa_interfaces::msg::RsuTarget>(
-    "/rsu/target",
-    rsu_qos
-  );
 
   controller_change_state_client_ =
     this->create_client<lifecycle_msgs::srv::ChangeState>(
@@ -113,12 +110,8 @@ void SystemManagerNode::setupTimer()
   fsm_timer_ = this->create_wall_timer(
     period,
     std::bind(&SystemManagerNode::onFsmTimer, this));
-
-  boot_seq_timer_ = this->create_wall_timer(
-    period,
-    std::bind(&SystemManagerNode::onBootSeqTimer, this));
-  
 }
+
 void SystemManagerNode::onControllerStatus(
   const roa_interfaces::msg::SystemStatus::SharedPtr msg)
 {
@@ -130,17 +123,31 @@ void SystemManagerNode::onControllerStatus(
   controller_status_.stamp = rclcpp::Time(msg->header.stamp);
   controller_status_.last_rx_time = now();
 
-    // TEMP: controller error bit definition
-  static constexpr uint32_t ERR_POLICY_NOT_LOADED   = 1 << 0;
-  static constexpr uint32_t ERR_IMU_STALE           = 1 << 1;
-  static constexpr uint32_t ERR_MOTOR_STATE_STALE   = 1 << 2;
-  static constexpr uint32_t ERR_RSU_STATE_STALE     = 1 << 3;
-  static constexpr uint32_t ERR_POLICY_STALE        = 1 << 4;
+  static constexpr uint32_t ERR_POLICY_NOT_LOADED = 1u << 0;
+  static constexpr uint32_t ERR_IMU_STALE         = 1u << 1;
+  static constexpr uint32_t ERR_MOTOR_STATE_STALE = 1u << 2;
+  static constexpr uint32_t ERR_RSU_STATE_STALE   = 1u << 3;
+  static constexpr uint32_t ERR_POLICY_STALE      = 1u << 4;
 
   const uint32_t err = msg->error_code;
+  const auto now_time = now();
 
-  if (err == 0) {
-    return;  // 에러 없으면 조용히
+  if (err == 0u) {
+    if (last_logged_error_code_ != 0u) {
+      RCLCPP_INFO(get_logger(), "Controller error cleared");
+      last_logged_error_code_ = 0u;
+      last_error_log_time_ = now_time;
+    }
+    return;
+  }
+
+  const bool code_changed = (err != last_logged_error_code_);
+  const bool throttle_elapsed =
+    (last_error_log_time_.nanoseconds() == 0) ||
+    ((now_time - last_error_log_time_).seconds() >= error_log_throttle_sec_);
+
+  if (!code_changed && !throttle_elapsed) {
+    return;
   }
 
   std::stringstream ss;
@@ -163,18 +170,10 @@ void SystemManagerNode::onControllerStatus(
   }
 
   RCLCPP_WARN(get_logger(), "%s", ss.str().c_str());
+
+  last_logged_error_code_ = err;
+  last_error_log_time_ = now_time;
 }
-// void SystemManagerNode::onControllerStatus(
-//   const roa_interfaces::msg::SystemStatus::SharedPtr msg)
-// {
-//   controller_status_.received = true;
-//   controller_status_.ready = msg->ready;
-//   controller_status_.healthy = msg->healthy;
-//   controller_status_.rt_ok = msg->rt_ok;
-//   controller_status_.error_code = msg->error_code;
-//   controller_status_.stamp = rclcpp::Time(msg->header.stamp);
-//   controller_status_.last_rx_time = now();
-// }
 
 void SystemManagerNode::onInitPosDone(const std_msgs::msg::Bool::SharedPtr msg)
 {
@@ -207,7 +206,8 @@ bool SystemManagerNode::hasRecoverableFault(const rclcpp::Time& now_time) const
 
 bool SystemManagerNode::hasCriticalFault() const
 {
-  return controller_status_.received && (!controller_status_.healthy || controller_status_.error_code != 0u);
+  return controller_status_.received &&
+         (!controller_status_.healthy || controller_status_.error_code != 0u);
 }
 
 bool SystemManagerNode::recovered(const rclcpp::Time& now_time) const
@@ -238,6 +238,7 @@ void SystemManagerNode::requestControllerGetStateAsync()
   }
 
   auto req = std::make_shared<lifecycle_msgs::srv::GetState::Request>();
+
   get_state_ctx_.pending = true;
   get_state_ctx_.done = false;
   get_state_ctx_.success = false;
@@ -314,6 +315,10 @@ void SystemManagerNode::enterBootStep(BootStep step)
 {
   boot_step_ = step;
   boot_step_enter_time_ = now();
+
+  if (step == BootStep::WAIT_CONTROLLER_READY) {
+    controller_ready_wait_count_ = 0;
+  }
 }
 
 void SystemManagerNode::enterSafeHoldStep(SafeHoldStep step)
@@ -343,13 +348,18 @@ void SystemManagerNode::publishInitPosIfNeeded(const rclcpp::Time& now_time)
 
 void SystemManagerNode::publish_init_pos()
 {
-  auto msg = roa_controller_node::PacketManager::build(init_pos_, this->now(), "INIT POS REQ");
+  auto msg = roa_controller_node::PacketManager::build(init_pos_, this->now(), "INIT POS HOLD");
   init_pos_pub_->publish(msg);
 }
 
 void SystemManagerNode::handleBoot(const rclcpp::Time& tnow)
 {
-  publishInitPosIfNeeded(tnow);
+  // 핵심 요구사항:
+  // activate 성공 전까지는 BOOT 어디에 있든 100Hz로 init pose hold 발행
+  if (!controller_activated_) {
+    publishInitPosIfNeeded(tnow);
+  }
+
   switch (boot_step_) {
     case BootStep::WAIT_CONTROLLER_SERVICE:
     {
@@ -424,35 +434,22 @@ void SystemManagerNode::handleBoot(const rclcpp::Time& tnow)
 
     case BootStep::WAIT_CONTROLLER_READY:
     {
-      static int error_counter = 0;
       if (bootReady(tnow)) {
+        controller_ready_wait_count_ = 0;
         RCLCPP_INFO(get_logger(), "Controller status ready/healthy/rt_ok confirmed");
-        enterBootStep(BootStep::REQUEST_INIT_POS);
-      }
-      else if (error_counter < 1000) {
-        error_counter++;
-      }
-      else {
-      RCLCPP_ERROR(
-        get_logger(),
-        "Controller status not ready after %d consecutive checks",
-        error_counter);
-        transitionTo(FsmState::SAFE_HOLD, "Controller Safty check time out ");
+        enterBootStep(BootStep::WAIT_INIT_POS_DONE);
+        return;
       }
 
-      return;
-    }
-
-    case BootStep::REQUEST_INIT_POS:
-    {
-      is_init_pos_done_ = false;
-      init_pos_start_time_ = tnow;
-      last_init_pos_pub_time_ = rclcpp::Time(0, 0, get_clock()->get_clock_type());
-
-      // publishInitPosIfNeeded(tnow);
-
-      RCLCPP_INFO(get_logger(), "Init pose sequence started");
-      enterBootStep(BootStep::WAIT_INIT_POS_DONE);
+      if (controller_ready_wait_count_ < 1000) {
+        ++controller_ready_wait_count_;
+      } else {
+        RCLCPP_ERROR(
+          get_logger(),
+          "Controller status not ready after %d consecutive checks",
+          controller_ready_wait_count_);
+        transitionTo(FsmState::SAFE_HOLD, "controller safety check timeout");
+      }
       return;
     }
 
@@ -464,12 +461,10 @@ void SystemManagerNode::handleBoot(const rclcpp::Time& tnow)
         return;
       }
 
-      // publishInitPosIfNeeded(tnow);
-
-      if ((tnow - init_pos_start_time_).seconds() > init_pos_timeout_sec_) {
-        transitionTo(FsmState::SAFE_HOLD, "init pose timeout");
-        return;
-      }
+      // if ((tnow - init_pos_start_time_).seconds() > init_pos_timeout_sec_) {
+      //   transitionTo(FsmState::SAFE_HOLD, "init pose timeout");
+      //   return;
+      // }
 
       return;
     }
@@ -642,7 +637,8 @@ void SystemManagerNode::transitionTo(FsmState new_state, const std::string& reas
     controller_configured_ = false;
     controller_activated_ = false;
     is_init_pos_done_ = false;
-    init_pos_start_time_ = rclcpp::Time(0, 0, get_clock()->get_clock_type());
+    controller_ready_wait_count_ = 0;
+    // init_pos_start_time_ = rclcpp::Time(0, 0, get_clock()->get_clock_type());
     last_init_pos_pub_time_ = rclcpp::Time(0, 0, get_clock()->get_clock_type());
     enterBootStep(BootStep::WAIT_CONTROLLER_SERVICE);
   } else if (new_state == FsmState::SAFE_HOLD) {
@@ -663,26 +659,6 @@ const char* SystemManagerNode::toString(FsmState state)
       return "ESTOP";
     default:
       return "UNKNOWN";
-  }
-}
-
-void SystemManagerNode::onBootSeqTimer()
-{
-  if (current_state_ == FsmState::BOOT) {
-    roa_interfaces::msg::RsuTarget msg;
-    msg.header.stamp = now();
-    msg.header.frame_id = "BOOTING SEQ";
-    static int rsu_seq_ = 0;
-    rsu_seq_++;
-    msg.seq = rsu_seq_;
-
-    msg.left_roll = 0.0f;
-    msg.left_pitch = 0.0f;
-    msg.right_roll = 0.0f;
-    msg.right_pitch = 0.0f;
-
-    rsu_target_pub_->publish(msg);
-
   }
 }
 
