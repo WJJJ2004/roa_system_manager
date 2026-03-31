@@ -10,7 +10,7 @@ namespace
 {
 #define DEG_20 0.349066f
 #define DEG_50 0.872665f
-#define DEG_30 0.523599f
+#define DEG_30 0.417960f // calcualted by rsu solver 
 }  // namespace
 
 namespace system_manager
