@@ -10,7 +10,7 @@ using namespace std::chrono_literals;
 namespace
 {
 constexpr float DEG_20 = 0.349066f;
-constexpr float DEG_30 = 0.523599f;
+constexpr float DEG_30 = 0.417960f  // non real value -> calcualted by rsu solver ;
 constexpr float DEG_50 = 0.872665f;
 }  // namespace
 
